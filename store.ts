@@ -1,7 +1,9 @@
 import { AppState, Term, BOMItem, ProductPricing, Quotation, User, ProductDescription, WarrantyPackage } from './types';
+import { getSupabase } from './supabaseClient';
 
-const SETTINGS_KEY = 'kondaas_settings';
-const QUOTES_KEY = 'kondaas_quotations';
+const SETTINGS_KEY = 'global';
+const LOCAL_SETTINGS_KEY = 'kondaas_settings';
+const LOCAL_QUOTES_KEY = 'kondaas_quotations';
 
 const DEFAULT_TERMS: Term[] = [
   { id: '1', text: 'Structure height will be 1 to 3 feet from floor level.', enabled: true, order: 1, projectType: 'Ongrid Subsidy', structureType: '2 Meter Flat Roof Structure', panelType: 'TOPCON G12R' },
@@ -109,11 +111,47 @@ export const INITIAL_STATE: AppState = {
 };
 
 export const fetchFullState = async (): Promise<AppState> => {
+  const supabase = getSupabase();
+  
   try {
-    const savedSettings = localStorage.getItem(SETTINGS_KEY);
-    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
-    const savedQuotes = localStorage.getItem(QUOTES_KEY);
-    const parsedQuotes: Quotation[] = savedQuotes ? JSON.parse(savedQuotes) : [];
+    if (!supabase) {
+      console.warn("Supabase not configured, falling back to localStorage");
+      const savedSettings = localStorage.getItem(LOCAL_SETTINGS_KEY);
+      const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+      const savedQuotes = localStorage.getItem(LOCAL_QUOTES_KEY);
+      const parsedQuotes: Quotation[] = savedQuotes ? JSON.parse(savedQuotes) : [];
+      
+      return {
+        ...INITIAL_STATE,
+        ...parsedSettings,
+        quotations: parsedQuotes,
+      };
+    }
+
+    // 1. Fetch Settings
+    const { data: settingsRow, error: settingsError } = await supabase
+      .from('settings')
+      .select('*')
+      .eq('singleton_key', SETTINGS_KEY)
+      .single();
+
+    if (settingsError && settingsError.code !== 'PGRST116') {
+      console.error("Error fetching settings:", settingsError);
+    }
+
+    // 2. Fetch Quotations
+    const { data: quotesRows, error: quotesError } = await supabase
+      .from('quotations')
+      .select('*');
+
+    if (quotesError) {
+      console.error("Error fetching quotations:", quotesError);
+    }
+
+    const parsedQuotes: Quotation[] = (quotesRows || []).map(row => ({
+      ...row.data,
+      id: row.id // Ensure ID matches the row key
+    }));
 
     let maxId = 1000;
     parsedQuotes.forEach(q => {
@@ -125,71 +163,112 @@ export const fetchFullState = async (): Promise<AppState> => {
     });
 
     return {
-      company: parsedSettings?.company || INITIAL_STATE.company,
-      bank: parsedSettings?.bank || INITIAL_STATE.bank,
-      productPricing: parsedSettings?.productPricing || INITIAL_STATE.productPricing,
-      warrantyPackages: parsedSettings?.warrantyPackages || INITIAL_STATE.warrantyPackages,
-      terms: parsedSettings?.terms || INITIAL_STATE.terms,
-      bomTemplates: parsedSettings?.bomTemplates || INITIAL_STATE.bomTemplates,
-      productDescriptions: parsedSettings?.productDescriptions || INITIAL_STATE.productDescriptions,
-      productColumnWidths: parsedSettings?.productColumnWidths || INITIAL_STATE.productColumnWidths,
-      bomColumnWidths: parsedSettings?.bomColumnWidths || INITIAL_STATE.bomColumnWidths,
-      users: parsedSettings?.users || INITIAL_STATE.users,
+      company: settingsRow?.company || INITIAL_STATE.company,
+      bank: settingsRow?.bank || INITIAL_STATE.bank,
+      productPricing: settingsRow?.pricing || INITIAL_STATE.productPricing,
+      warrantyPackages: settingsRow?.warranty || INITIAL_STATE.warrantyPackages,
+      terms: settingsRow?.terms || INITIAL_STATE.terms,
+      bomTemplates: settingsRow?.bom_templates || INITIAL_STATE.bomTemplates,
+      productDescriptions: settingsRow?.product_descriptions || INITIAL_STATE.productDescriptions,
+      productColumnWidths: settingsRow?.product_column_widths || INITIAL_STATE.productColumnWidths,
+      bomColumnWidths: settingsRow?.bom_column_widths || INITIAL_STATE.bomColumnWidths,
+      users: settingsRow?.users || INITIAL_STATE.users,
       quotations: parsedQuotes,
       nextId: maxId + 1
     };
+
   } catch (err) {
-    console.error("Error fetching data:", err);
+    console.error("Unexpected error fetching data from Supabase:", err);
     return INITIAL_STATE;
   }
 };
 
 export const saveSettingsToLocal = async (state: AppState): Promise<boolean> => {
+  const settingsToSave = {
+    company: state.company,
+    bank: state.bank,
+    productPricing: state.productPricing,
+    warrantyPackages: state.warrantyPackages,
+    terms: state.terms,
+    bomTemplates: state.bomTemplates,
+    productDescriptions: state.productDescriptions,
+    productColumnWidths: state.productColumnWidths,
+    bomColumnWidths: state.bomColumnWidths,
+    users: state.users
+  };
+  localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settingsToSave));
+
+  const supabase = getSupabase();
+  if (!supabase) return true;
+
   try {
-    const settingsToSave = {
-      company: state.company,
-      bank: state.bank,
-      productPricing: state.productPricing,
-      warrantyPackages: state.warrantyPackages,
-      terms: state.terms,
-      bomTemplates: state.bomTemplates,
-      productDescriptions: state.productDescriptions,
-      productColumnWidths: state.productColumnWidths,
-      bomColumnWidths: state.bomColumnWidths,
-      users: state.users
-    };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
+    const { error } = await supabase
+      .from('settings')
+      .upsert({
+        singleton_key: SETTINGS_KEY,
+        company: state.company,
+        bank: state.bank,
+        pricing: state.productPricing,
+        warranty: state.warrantyPackages,
+        terms: state.terms,
+        bom_templates: state.bomTemplates,
+        product_descriptions: state.productDescriptions,
+        product_column_widths: state.productColumnWidths,
+        bom_column_widths: state.bomColumnWidths,
+        users: state.users
+      });
+
+    if (error) throw error;
     return true;
   } catch (err) {
-    console.error("Error saving settings:", err);
+    console.error("Error saving settings to Supabase:", err);
     return false;
   }
 };
 
 export const saveQuotationToLocal = async (quotation: Quotation, allQuotes: Quotation[]) => {
+  localStorage.setItem(LOCAL_QUOTES_KEY, JSON.stringify(allQuotes.some(q => q.id === quotation.id) 
+    ? allQuotes.map(q => q.id === quotation.id ? quotation : q)
+    : [...allQuotes, quotation]
+  ));
+
+  const supabase = getSupabase();
+  if (!supabase) return;
+
   try {
-    const savedQuotes = localStorage.getItem(QUOTES_KEY);
-    const existingQuotes: Quotation[] = savedQuotes ? JSON.parse(savedQuotes) : [];
-    const index = existingQuotes.findIndex((q: Quotation) => q.id === quotation.id);
-    let updatedQuotes;
-    if (index >= 0) {
-      updatedQuotes = existingQuotes.map((q: Quotation) => q.id === quotation.id ? quotation : q);
-    } else {
-      updatedQuotes = [...existingQuotes, quotation];
-    }
-    localStorage.setItem(QUOTES_KEY, JSON.stringify(updatedQuotes));
+    const { error } = await supabase
+      .from('quotations')
+      .upsert({
+        id: quotation.id,
+        customer_name: quotation.customerName,
+        customer_details: {
+          mobile: quotation.mobile,
+          address: quotation.address,
+          email: quotation.email
+        },
+        data: quotation
+      });
+
+    if (error) throw error;
   } catch (err) {
-    console.error("Error saving quotation:", err);
+    console.error("Error saving quotation to Supabase:", err);
   }
 };
 
 export const deleteQuotationFromLocal = async (id: string, allQuotes: Quotation[]) => {
+  localStorage.setItem(LOCAL_QUOTES_KEY, JSON.stringify(allQuotes.filter(q => q.id !== id)));
+
+  const supabase = getSupabase();
+  if (!supabase) return;
+
   try {
-    const savedQuotes = localStorage.getItem(QUOTES_KEY);
-    const existingQuotes: Quotation[] = savedQuotes ? JSON.parse(savedQuotes) : [];
-    const updatedQuotes = existingQuotes.filter((q: Quotation) => q.id !== id);
-    localStorage.setItem(QUOTES_KEY, JSON.stringify(updatedQuotes));
+    const { error } = await supabase
+      .from('quotations')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
   } catch (err) {
-    console.error("Error deleting quotation:", err);
+    console.error("Error deleting quotation from Supabase:", err);
   }
 };
