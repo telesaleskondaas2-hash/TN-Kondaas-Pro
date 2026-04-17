@@ -1,0 +1,195 @@
+import { AppState, Term, BOMItem, ProductPricing, Quotation, User, ProductDescription, WarrantyPackage } from './types';
+
+const SETTINGS_KEY = 'kondaas_settings';
+const QUOTES_KEY = 'kondaas_quotations';
+
+const DEFAULT_TERMS: Term[] = [
+  { id: '1', text: 'Structure height will be 1 to 3 feet from floor level.', enabled: true, order: 1, projectType: 'Ongrid Subsidy', structureType: '2 Meter Flat Roof Structure', panelType: 'TOPCON G12R' },
+  { id: '2', text: 'KSEB application & registration charges are included in the above cost.', enabled: true, order: 2, projectType: 'Ongrid Subsidy', structureType: '2 Meter Flat Roof Structure', panelType: 'TOPCON G12R' },
+  { id: '3', text: 'The customer shall provide necessary space and shadow-free area for installation.', enabled: true, order: 3, projectType: 'Ongrid Subsidy', structureType: '2 Meter Flat Roof Structure', panelType: 'TOPCON G12R' },
+  { id: '4', text: 'Civil works like concrete foundation if needed will be extra.', enabled: true, order: 4, projectType: 'Ongrid Subsidy', structureType: '2 Meter Flat Roof Structure', panelType: 'TOPCON G12R' },
+  { id: '5', text: 'The subsidy will be credited to the customer account as per govt norms.', enabled: true, order: 5, projectType: 'Ongrid Subsidy', structureType: '2 Meter Flat Roof Structure', panelType: 'TOPCON G12R' },
+  { id: '6', text: 'Any additional cabling beyond 30 meters will be charged extra.', enabled: true, order: 6, projectType: 'Ongrid Subsidy', structureType: '2 Meter Flat Roof Structure', panelType: 'TOPCON G12R' },
+];
+
+const DEFAULT_BOM_3KW: BOMItem[] = [
+  { id: '1', product: 'Solar Panels', uom: 'Nos', quantity: '8', specification: '550Wp Mono PERC', make: 'Adani/Waaree' },
+  { id: '2', product: 'On-Grid Inverter', uom: 'No', quantity: '1', specification: '3kW String Inverter', make: 'Growatt/Solis' },
+  { id: '10', product: 'Lightning Arrester', uom: 'Set', quantity: '1', specification: 'Solid Copper 1M', make: 'Standard' },
+];
+
+const DEFAULT_PRICING: ProductPricing[] = [
+  {
+    id: 'p3kw',
+    name: '3kW Standard Pricing',
+    projectType: 'Ongrid Subsidy',
+    structureType: '2 Meter Flat Roof Structure',
+    panelType: 'TOPCON G12R',
+    actualPlantCost: 185000,
+    discount: 0,
+    subsidyAmount: 78000,
+    ksebCharges: 0,
+    additionalMaterialCost: 0,
+    customizedStructureCost: 0,
+    netMeterCost: 0
+  }
+];
+
+const DEFAULT_WARRANTIES: WarrantyPackage[] = [
+  {
+    id: 'w-default',
+    projectType: 'Ongrid Subsidy',
+    structureType: '2 Meter Flat Roof Structure',
+    panelType: 'TOPCON G12R',
+    panelWarranty: '25 Years Performance Warranty (Adani Solar)',
+    inverterWarranty: '5 to 10 Years Product Warranty (On-Grid String)',
+    batteryWarranty: '',
+    systemWarranty: '5 Years Free Service (Kondaas Automation)',
+    monitoringSystem: 'Standard Online Monitoring (Wi-Fi Required)'
+  }
+];
+
+const DEFAULT_USERS: User[] = [
+  { id: 'admin-01', name: 'Administrator', username: 'admin', password: 'admin123', role: 'admin' }
+];
+
+export const INITIAL_STATE: AppState = {
+  company: {
+    name: 'Kondaas Automation Pvt Ltd',
+    headOffice: '123, Solar Plaza, Opp. KSEB, Kochi, Kerala',
+    regionalOffice1: 'Branch Office, Trivandrum, Kerala',
+    regionalOffice2: 'Service Center, Calicut, Kerala',
+    phone: '+91 9876543210',
+    email: 'info@kondaas.com',
+    website: 'www.kondaas.com',
+    logo: '', seal: '', gstin: '32AAAAA0000A1Z5'
+  },
+  bank: {
+    companyName: 'Kondaas Automation Private Limited',
+    bankName: 'HDFC BANK',
+    accountNumber: '50200012345678',
+    branch: 'Cochin Main',
+    ifsc: 'HDFC0000123',
+    address: 'M.G. Road, Cochin',
+    pan: 'ABCDE1234F',
+    upiId: 'kondaas@hdfc',
+    gstNumber: '32AAAAA0000A1Z5'
+  },
+  productPricing: DEFAULT_PRICING,
+  warrantyPackages: DEFAULT_WARRANTIES,
+  terms: DEFAULT_TERMS,
+  bomTemplates: [
+    { 
+      id: '3kw-std', 
+      name: '3kW Standard On-Grid', 
+      items: DEFAULT_BOM_3KW
+    }
+  ],
+  productDescriptions: [
+    { id: '1', name: '3kW ON-GRID SOLAR POWER GENERATING SYSTEM', projectType: 'Ongrid Subsidy', structureType: '2 Meter Flat Roof Structure', panelType: 'TOPCON G12R', defaultPricingId: 'p3kw', defaultBomTemplateId: '3kw-std', order: 1 }
+  ],
+  productColumnWidths: {
+    name: 300,
+    projectType: 150,
+    structureType: 150,
+    panelType: 150,
+    pricing: 150,
+    bom: 150
+  },
+  bomColumnWidths: {
+    product: 200,
+    uom: 80,
+    quantity: 80,
+    specification: 250,
+    make: 150
+  },
+  users: DEFAULT_USERS,
+  quotations: [],
+  nextId: 1000
+};
+
+export const fetchFullState = async (): Promise<AppState> => {
+  try {
+    const savedSettings = localStorage.getItem(SETTINGS_KEY);
+    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const savedQuotes = localStorage.getItem(QUOTES_KEY);
+    const parsedQuotes: Quotation[] = savedQuotes ? JSON.parse(savedQuotes) : [];
+
+    let maxId = 1000;
+    parsedQuotes.forEach(q => {
+      const match = q.id.match(/(?:KAPL|KLMNRE)-(\d+)/); 
+      if (match && match[1]) {
+        const num = parseInt(match[1]);
+        if (num > maxId) maxId = num;
+      }
+    });
+
+    return {
+      company: parsedSettings?.company || INITIAL_STATE.company,
+      bank: parsedSettings?.bank || INITIAL_STATE.bank,
+      productPricing: parsedSettings?.productPricing || INITIAL_STATE.productPricing,
+      warrantyPackages: parsedSettings?.warrantyPackages || INITIAL_STATE.warrantyPackages,
+      terms: parsedSettings?.terms || INITIAL_STATE.terms,
+      bomTemplates: parsedSettings?.bomTemplates || INITIAL_STATE.bomTemplates,
+      productDescriptions: parsedSettings?.productDescriptions || INITIAL_STATE.productDescriptions,
+      productColumnWidths: parsedSettings?.productColumnWidths || INITIAL_STATE.productColumnWidths,
+      bomColumnWidths: parsedSettings?.bomColumnWidths || INITIAL_STATE.bomColumnWidths,
+      users: parsedSettings?.users || INITIAL_STATE.users,
+      quotations: parsedQuotes,
+      nextId: maxId + 1
+    };
+  } catch (err) {
+    console.error("Error fetching data:", err);
+    return INITIAL_STATE;
+  }
+};
+
+export const saveSettingsToLocal = async (state: AppState): Promise<boolean> => {
+  try {
+    const settingsToSave = {
+      company: state.company,
+      bank: state.bank,
+      productPricing: state.productPricing,
+      warrantyPackages: state.warrantyPackages,
+      terms: state.terms,
+      bomTemplates: state.bomTemplates,
+      productDescriptions: state.productDescriptions,
+      productColumnWidths: state.productColumnWidths,
+      bomColumnWidths: state.bomColumnWidths,
+      users: state.users
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
+    return true;
+  } catch (err) {
+    console.error("Error saving settings:", err);
+    return false;
+  }
+};
+
+export const saveQuotationToLocal = async (quotation: Quotation, allQuotes: Quotation[]) => {
+  try {
+    const savedQuotes = localStorage.getItem(QUOTES_KEY);
+    const existingQuotes: Quotation[] = savedQuotes ? JSON.parse(savedQuotes) : [];
+    const index = existingQuotes.findIndex((q: Quotation) => q.id === quotation.id);
+    let updatedQuotes;
+    if (index >= 0) {
+      updatedQuotes = existingQuotes.map((q: Quotation) => q.id === quotation.id ? quotation : q);
+    } else {
+      updatedQuotes = [...existingQuotes, quotation];
+    }
+    localStorage.setItem(QUOTES_KEY, JSON.stringify(updatedQuotes));
+  } catch (err) {
+    console.error("Error saving quotation:", err);
+  }
+};
+
+export const deleteQuotationFromLocal = async (id: string, allQuotes: Quotation[]) => {
+  try {
+    const savedQuotes = localStorage.getItem(QUOTES_KEY);
+    const existingQuotes: Quotation[] = savedQuotes ? JSON.parse(savedQuotes) : [];
+    const updatedQuotes = existingQuotes.filter((q: Quotation) => q.id !== id);
+    localStorage.setItem(QUOTES_KEY, JSON.stringify(updatedQuotes));
+  } catch (err) {
+    console.error("Error deleting quotation:", err);
+  }
+};

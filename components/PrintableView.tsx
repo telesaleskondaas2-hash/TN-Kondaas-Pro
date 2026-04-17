@@ -1,0 +1,501 @@
+import React from 'react';
+import { AppState, Quotation, WarrantyPackage } from '../types';
+import { format } from 'date-fns';
+
+interface Props {
+  quotation: Quotation;
+  state: AppState;
+}
+
+const PrintableView: React.FC<Props> = ({ quotation, state }) => {
+  const isPendingSurvey = quotation.status === 'Site Survey Pending';
+
+  // Filter terms by configuration and status
+  const activeTerms = state.terms.filter(t => 
+    t.enabled && 
+    t.projectType === quotation.projectType && 
+    t.structureType === quotation.structureType && 
+    t.panelType === quotation.panelType
+  ).sort((a, b) => a.order - b.order);
+
+  // Find the warranty package that best matches the quotation configuration
+  const matchedWarranty = state.warrantyPackages.find(w => 
+    w.projectType === quotation.projectType && 
+    w.structureType === quotation.structureType && 
+    w.panelType === quotation.panelType
+  ) || state.warrantyPackages[0]; // Fallback to first one if no exact match
+
+  const SectionHeader = ({ title }: { title: string }) => (
+    <div className="section-header w-full">
+      <h3>{title}</h3>
+      <div className="line"></div>
+    </div>
+  );
+
+  const PageFooter = ({ pageNum, noMarginTop = false }: { pageNum: number, noMarginTop?: boolean }) => (
+    <div className={`${noMarginTop ? '' : 'mt-auto'} pt-2 flex justify-between items-center text-[5pt] text-gray-400 font-bold uppercase tracking-[0.4em] w-full border-t border-gray-100`}>
+      <span>{state.company.name} {isPendingSurvey ? '' : `// Ref: ${quotation.id}`}</span>
+      <span className="text-gray-300">Page {pageNum} of 4</span>
+    </div>
+  );
+
+  const PageLogo = () => (
+    state.company.logo ? (
+      <img src={state.company.logo} alt="Logo" crossOrigin="anonymous" referrerPolicy="no-referrer" className="absolute top-4 left-5 h-12 w-auto object-contain z-20" />
+    ) : null
+  );
+
+  const CompanySealBlock = ({ imageBottomClass = "bottom-6" }: { imageBottomClass?: string }) => (
+    <div className="text-center w-72">
+      <div className="h-14 border-b border-gray-100 mb-1 relative">
+         {state.company.seal ? (
+           <img src={state.company.seal} alt="Seal" crossOrigin="anonymous" referrerPolicy="no-referrer" className={`absolute ${imageBottomClass} left-1/2 -translate-x-1/2 h-14 w-auto object-contain z-10`} />
+         ) : (
+           <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[5pt] text-red-100 uppercase font-black tracking-widest whitespace-nowrap">Official Seal</span>
+         )}
+      </div>
+      <p className="text-[5.2pt] font-black uppercase text-red-600 tracking-tight pt-1 border-t border-red-600 whitespace-nowrap overflow-visible">For {state.company.name}</p>
+      <p className="text-[5pt] text-gray-400 font-black uppercase mt-0.5 tracking-[0.2em] whitespace-nowrap">Authorized Signatory</p>
+    </div>
+  );
+
+  const pricing = quotation.pricing || {
+    actualPlantCost: 0,
+    discount: 0,
+    subsidyAmount: 0,
+    ksebCharges: 0,
+    customizedStructureCost: 0,
+    additionalMaterialCost: 0,
+    netMeterCost: 0
+  };
+
+  const actualPlantCost = pricing.actualPlantCost || 0;
+  const discount = pricing.discount || 0;
+  const subsidyAmount = pricing.subsidyAmount || 0;
+  const ksebCharges = pricing.ksebCharges || 0;
+  const customizedStructureCost = pricing.customizedStructureCost || 0;
+  const additionalMaterialCost = pricing.additionalMaterialCost || 0;
+  const netMeterCost = pricing.netMeterCost || 0;
+
+  const afterDiscount = actualPlantCost - discount;
+  const afterSubsidy = afterDiscount - subsidyAmount;
+  const grandTotal = afterSubsidy + ksebCharges + customizedStructureCost + additionalMaterialCost + netMeterCost;
+
+  const isWithoutStructure = quotation.structureType === 'Without Structure';
+  const hasCustomizedStructureCost = customizedStructureCost > 0;
+
+  const QualityAssuranceSection = () => {
+    const isHybrid = quotation.projectType === 'Hybrid Subsidy' || quotation.projectType === 'Hybrid Non Subsidy';
+    
+    const qaItems = [
+      { l: 'Modules', v: matchedWarranty?.panelWarranty || 'N/A' },
+      { l: 'Inverter', v: matchedWarranty?.inverterWarranty || 'N/A' },
+    ];
+
+    if (isHybrid) {
+      qaItems.push({ l: 'Battery', v: matchedWarranty?.batteryWarranty || 'N/A' });
+    }
+
+    qaItems.push(
+      { l: 'Service', v: matchedWarranty?.systemWarranty || 'N/A' },
+      { l: 'Monitor', v: matchedWarranty?.monitoringSystem || 'N/A' },
+    );
+
+    return (
+      <div className="w-full">
+        <SectionHeader title="Quality Assurance" />
+        <div className={`grid ${isHybrid ? 'grid-cols-5' : 'grid-cols-4'} gap-2`}>
+          {qaItems.map((w, i) => (
+            <div key={i} className="bg-gray-50 border border-gray-100 p-2 rounded-xl flex flex-col items-center text-center shadow-sm hover:border-red-100 transition-colors">
+              <p className="text-[6pt] font-black text-red-600 uppercase tracking-widest mb-0.5">{w.l}</p>
+              <p className="text-[7pt] font-black text-gray-800 leading-tight">{w.v}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="pdf-container">
+      {/* PAGE 1: EXECUTIVE SUMMARY & PRICING */}
+      <div className="a4-page relative">
+        <PageLogo />
+        
+        {/* Quotation No & Date at absolute position in the top margin area */}
+        {!isPendingSurvey && (
+          <div className="absolute top-4 right-16 text-right z-30 bg-black p-2 rounded-md shadow-sm min-w-[100pt]">
+            <span className="text-[5pt] font-black text-gray-400 uppercase tracking-[0.1em] block mb-0.5">Quotation No & Date</span>
+            <p className="text-[10pt] font-black text-white tracking-tight leading-none">{quotation.id}</p>
+            <p className="text-[6pt] text-gray-300 font-bold uppercase mt-1 tracking-wider">{format(new Date(quotation.date), 'dd MMMM yyyy')}</p>
+          </div>
+        )}
+
+        <div className="flex justify-between items-start border-b-2 border-black pb-3 mb-3 w-full mt-4">
+          <div className="flex flex-col gap-1 items-start flex-1 pt-2">
+            <div className="flex-1">
+              <h1 className="text-[14pt] font-[900] text-black leading-none uppercase tracking-tighter whitespace-nowrap">{state.company.name}</h1>
+              <p className="text-[6pt] text-primary-red font-black tracking-[0.2em] uppercase mt-1 mb-3 whitespace-nowrap">ADANI SOLAR AUTHORIZED CHANNEL PARTNER</p>
+              
+              <div className="space-y-0.5">
+                {/* Regional Branches */}
+                <p className="text-[7pt] text-gray-700 font-bold uppercase leading-tight">
+                  <span className="text-black font-black text-[6pt] tracking-widest">REGIONAL BRANCHE 1: </span>
+                  {state.company.regionalOffice1}
+                </p>
+                {state.company.regionalOffice2 && (
+                  <p className="text-[7pt] text-gray-700 font-bold uppercase leading-tight">
+                    <span className="text-black font-black text-[6pt] tracking-widest">REGIONAL BRANCHE 2: </span>
+                    {state.company.regionalOffice2}
+                  </p>
+                )}
+                <p className="text-[7pt] text-gray-700 font-bold uppercase leading-tight pt-1">
+                  <span className="text-black font-black text-[6pt] tracking-widest">HEAD OFFICE: </span>
+                  {state.company.headOffice}
+                </p>
+                <p className="text-[7pt] text-gray-700 font-bold uppercase leading-tight pt-0.5">
+                  <span className="text-black font-black text-[6pt] tracking-widest whitespace-nowrap">company website: {state.company.website} | mail id: {state.company.email} | Sales Support Contact: {state.company.phone}</span>
+                </p>
+              </div>
+
+              {/* Sales Person Info: Only print if Survey is NOT Pending */}
+              {!isPendingSurvey && (
+                <div className="mt-4 border-t border-gray-100 pt-2">
+                  <p className="text-[8.5pt] font-black uppercase text-black whitespace-nowrap">
+                    Sales Person: {quotation.createdByName} &nbsp;&nbsp;|&nbsp;&nbsp; Sales Person Mobile No : {quotation.salesPersonMobile || 'N/A'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-4 w-full">
+          <div className="flex items-baseline gap-3 mb-3">
+             <h4 className="text-[7.5pt] font-black text-gray-400 uppercase tracking-widest whitespace-nowrap">CUSTOMER NAME :</h4>
+             <p className="text-[14pt] font-[900] text-black uppercase leading-tight">{quotation.customerName}</p>
+          </div>
+          <div className="bg-gray-50 border border-gray-100 p-3 rounded-xl flex flex-col text-[8pt] font-bold text-gray-600 gap-2 shadow-sm">
+            <div className="flex flex-wrap items-center justify-start gap-x-8 gap-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-black font-black uppercase text-[6.5pt] tracking-widest opacity-40">Consumer No:</span>
+                <span className="text-black uppercase">{quotation.discomNumber || 'N/A'}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-black font-black uppercase text-[6.5pt] tracking-widest opacity-40">MOBILE:</span>
+                <span className="text-black">{quotation.mobile}</span>
+              </div>
+            </div>
+            <div className="flex items-start gap-2 border-t border-gray-200-50 pt-1.5">
+              <span className="text-black font-black uppercase text-[6.5pt] tracking-widest opacity-40 pt-0.5">ADDRESS:</span>
+              <span className="text-black uppercase leading-snug text-[8.5pt]">{quotation.address}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-red-50 border-l-4 border-red-600 p-2.5 w-full rounded-r-md shadow-sm mb-3">
+          <span className="text-[6.5pt] text-red-400 font-black uppercase tracking-widest block mb-1">PROPOSED SYSTEM</span>
+          <p className="text-[10pt] font-black text-red-700 uppercase leading-snug">{quotation.systemDescription}</p>
+          {isWithoutStructure && (
+            <p className="text-[7.5pt] font-black text-gray-600 uppercase mt-1 tracking-tighter">
+              {hasCustomizedStructureCost ? 'Customized Structure Cost Included without GST' : '* Structure cost is additionally chargeable'}
+            </p>
+          )}
+        </div>
+
+        <div className="mb-2 w-full border-b-2 border-red-600 pb-1">
+          <h3 className="text-[9.5pt] font-black text-red-600 uppercase tracking-[0.25em]">PRICING AND ESTIMATION BREAKUP</h3>
+        </div>
+
+        <div className="mb-4 w-full">
+          {/* Main Pricing Table Section */}
+          <div className="rounded-xl overflow-hidden border border-gray-100 shadow-sm mb-4">
+            <table className="table-modern">
+              <thead>
+                <tr>
+                  <th className="w-20 text-center">#</th>
+                  <th className="py-3">Description</th>
+                  <th className="text-right w-44 pr-10 text-[10.5pt]">Rate (INR)</th>
+                </tr>
+              </thead>
+              <tbody className="text-[8.5pt] font-bold">
+                <tr>
+                  <td className="text-center text-gray-300 font-black">01</td>
+                  <td className="py-2 uppercase tracking-tight text-gray-800">ACTUAL PLANT COST of {quotation.systemDescription}</td>
+                  <td className="text-right font-black pr-10 text-black text-[11pt]">₹ {actualPlantCost.toLocaleString('en-IN')}</td>
+                </tr>
+                <tr>
+                  <td className="text-center text-gray-300 font-black">02</td>
+                  <td className="py-2 uppercase tracking-tight text-green-600">Limited Period Discount</td>
+                  <td className="text-right font-black pr-10 text-green-600 text-[11pt]">(-) ₹ {discount.toLocaleString('en-IN')}</td>
+                </tr>
+                <tr className="bg-gray-50 border-t border-b">
+                  <td className="text-center text-gray-400 font-black">-</td>
+                  <td className="py-2 uppercase font-black text-gray-900 tracking-tighter text-[7.5pt] leading-tight">Amount To Be Paid by The Customer to Kondaas After Limited Period Discount</td>
+                  <td className="text-right font-black pr-10 text-black text-[11pt]">₹ {afterDiscount.toLocaleString('en-IN')}</td>
+                </tr>
+                <tr>
+                  <td className="text-center text-red-200 font-black">03</td>
+                  <td className="py-2 uppercase tracking-tight text-red-700 leading-snug">Subsidy Amount as Per PM Surya Ghar Approved Guidelines</td>
+                  <td className="text-right font-black pr-10 text-red-600 text-[11pt]">(-) ₹ {subsidyAmount.toLocaleString('en-IN')}</td>
+                </tr>
+                <tr className="bg-red-50">
+                  <td className="text-center text-red-600 font-black">-</td>
+                  <td className="py-2 uppercase font-black text-red-600 tracking-tighter">on-grid ROOFTOP SOLAR POWER PLANT COST AFTER SUBSIDY</td>
+                  <td className="text-right font-black pr-10 text-red-600 text-[14pt]">₹ {afterSubsidy.toLocaleString('en-IN')}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="rounded-xl overflow-hidden border border-gray-100 shadow-sm bg-gray-50-30">
+            <table className="table-modern">
+              <thead>
+                <tr className="bg-gray-100 text-gray-600">
+                  <th className="w-20 text-center bg-gray-200 text-gray-700 !py-2 text-[6.5pt]">#</th>
+                  <th className="!py-2 bg-gray-200 text-gray-700 font-black text-[6.5pt] tracking-tighter uppercase">ADDITIONAL CHARGES / CUSTOMER SCOPE</th>
+                  <th className="text-right w-64 pr-10 bg-gray-200 text-gray-700 font-black text-[10.5pt] tracking-widest uppercase">RATE (INR)</th>
+                </tr>
+              </thead>
+              <tbody className="text-[8pt] font-bold">
+                <tr>
+                  <td className="text-center text-gray-300 !py-1">04</td>
+                  <td className="!py-1 uppercase text-gray-600">KSEB Charges</td>
+                  <td className="text-right font-black pr-10 text-gray-900 !py-1 text-[10pt] whitespace-nowrap">₹ {ksebCharges.toLocaleString('en-IN')}</td>
+                </tr>
+                <tr>
+                  <td className="text-center text-gray-300 !py-1">05</td>
+                  <td className="!py-1 uppercase text-gray-600">
+                    {quotation.structureType === '1 Meter Flat Roof Structure' ? '4 Feet Flat Roof Structure Cost' : 'Customized Structure Cost(Without GST)'}
+                  </td>
+                  <td className="text-right font-black pr-10 text-gray-900 !py-1 text-[10pt] whitespace-nowrap">
+                    {quotation.structureType === '1 Meter Flat Roof Structure' 
+                      ? "Included" 
+                      : (isPendingSurvey && customizedStructureCost === 0 
+                          ? <span className="text-[8pt]">Additional Cost As Per Site Condition</span> 
+                          : `₹ ${customizedStructureCost.toLocaleString('en-IN')}`)
+                    }
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-center text-gray-300 !py-1">06</td>
+                  <td className="!py-1 uppercase text-gray-600">Additional Material Cost (If Applicable)</td>
+                  <td className="text-right font-black pr-10 text-gray-900 !py-1 text-[10pt] whitespace-nowrap">
+                    {isPendingSurvey && additionalMaterialCost === 0 
+                      ? <span className="text-[8pt]">Additional Cost As Per Site Condition</span> 
+                      : `₹ ${additionalMaterialCost.toLocaleString('en-IN')}`
+                    }
+                  </td>
+                </tr>
+                <tr>
+                  <td className="text-center text-gray-300 !py-1">07</td>
+                  <td className="!py-1 uppercase text-gray-600 text-[7pt]">scope of NET METER</td>
+                  <td className="text-right font-black pr-10 text-gray-900 !py-1 text-[10pt] whitespace-nowrap">
+                    {netMeterCost === 0 
+                      ? "KSEB/Customer Scope" 
+                      : `₹ ${netMeterCost.toLocaleString('en-IN')}`
+                    }
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="pricing-summary-row h-auto py-4">
+              <div className="flex-1 pr-4 overflow-visible min-w-0 text-left">
+                <p className="text-[7pt] font-[900] uppercase tracking-tighter leading-tight whitespace-nowrap">CUSTOMER EFFECTIVE COST AFTER SUBSIDY - INCLUDING KSEB CHARGES AS PER THE CURRENT SLAB</p>
+                <div className="text-[5.5pt] text-gray-300 font-bold uppercase tracking-[0.05em] mt-2 opacity-90 leading-relaxed">
+                  INCLUSIVE OF GST, TRANSPORTATION & STANDARD INSTALLATION
+                  {isWithoutStructure && (
+                    <>
+                      <br />
+                      <span className="text-red-500 font-black text-[5pt] leading-none">
+                        {hasCustomizedStructureCost ? 'Customized Structure Cost Included without GST' : 'Customized Structure cost additionally chargeable as per site condition'}
+                      </span>
+                    </>
+                  )}
+                  <br />
+                  CONSUMER NEED TO PAY TOTAL PLANT COST, MNRE SUBSIDY WILL DIRECTLY REACH THE CUSTOMER'S ACCOUNT WITHIN 1-3 MONTH
+                </div>
+              </div>
+              <div className="text-right min-w-fit flex flex-col justify-center">
+                <span className="text-[26pt] font-black text-white leading-none">₹ {grandTotal.toLocaleString('en-IN')}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-auto w-full flex justify-center px-10 mb-2">
+          <div className="pb-4">
+            <p className="text-[7pt] font-black text-red-600 uppercase tracking-[0.2em] border border-red-100 px-3 py-1.5 rounded-lg bg-red-50-30">
+              Check TERMS AND CONDITIONS PAGE 3
+            </p>
+          </div>
+        </div>
+        <PageFooter pageNum={1} noMarginTop />
+      </div>
+
+      {/* PAGE 2: BOM & Quality Assurance */}
+      <div className="a4-page relative">
+        <PageLogo />
+        <div className="pt-4">
+          <SectionHeader title="Technical Specifications (BOM)" />
+          <div className="rounded-xl overflow-hidden w-full mb-4">
+            <table className="w-full border-collapse table-fixed">
+              <thead>
+                <tr className="bg-black text-white">
+                  <th className="w-[5%] text-left py-1 px-2 text-[8pt] font-bold uppercase tracking-wider">#</th>
+                  <th className="w-[20%] text-left py-1 px-2 text-[8pt] font-bold uppercase tracking-wider">Products</th>
+                  <th className="w-[10%] text-left py-1 px-2 text-[8pt] font-bold uppercase tracking-wider">Qty</th>
+                  <th className="w-[10%] text-left py-1 px-2 text-[8pt] font-bold uppercase tracking-wider">UOM</th>
+                  <th className="w-[27.5%] text-left py-1 px-2 text-[8pt] font-bold uppercase tracking-wider">Spec/Type</th>
+                  <th className="w-[27.5%] text-left py-1 px-2 text-[8pt] font-bold uppercase tracking-wider">Make</th>
+                </tr>
+              </thead>
+              <tbody className="text-[8pt]">
+                {(quotation.bom || []).map((item, idx) => (
+                  <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50-50'}>
+                    <td className="py-1 px-2">{idx + 1}</td>
+                    <td className="py-1 px-2 font-medium">{item.product}</td>
+                    <td className="py-1 px-2">{item.quantity}</td>
+                    <td className="py-1 px-2">{item.uom}</td>
+                    <td className="py-1 px-2 text-gray-600 leading-tight">{item.specification}</td>
+                    <td className="py-1 px-2 font-medium uppercase">{item.make}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <QualityAssuranceSection />
+        </div>
+        <div className="mt-auto flex justify-end px-10 mb-6">
+          <CompanySealBlock imageBottomClass="bottom-2" />
+        </div>
+        <PageFooter pageNum={2} />
+      </div>
+
+      {/* PAGE 3: Terms */}
+      <div className="a4-page relative">
+        <PageLogo />
+        <div className="pt-6">
+          <SectionHeader title="Terms and Conditions" />
+          <div className="flex flex-col gap-2 px-4 w-full mt-4">
+            {activeTerms.map((term, idx) => (
+              <div key={term.id} className="flex gap-4 items-start">
+                <span className="flex-shrink-0 text-[9pt] font-bold text-gray-900 mt-0.5">{idx + 1}.</span>
+                <p className="text-[9pt] text-gray-700 font-normal leading-snug flex-1 text-justify">{term.text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="mt-auto flex justify-end px-10 mb-6">
+          <CompanySealBlock imageBottomClass="bottom-2" />
+        </div>
+        <PageFooter pageNum={3} />
+      </div>
+
+      {/* PAGE 4: Execution */}
+      <div className="a4-page relative">
+        <PageLogo />
+        <div className="pt-6">
+          <SectionHeader title="Execution & Compliance" />
+          <div className="grid grid-cols-5 gap-6 mb-8 w-full">
+            <div className="modern-card border-t-4 border-red-600 shadow-sm flex flex-col col-span-3">
+              <h4 className="text-[7.5pt] font-black uppercase tracking-[0.25em] mb-5 text-red-600 text-center border-b border-red-100 pb-3">Company Bank Account Details</h4>
+              <div className="space-y-3 text-[10pt] font-bold">
+                <div className="border-b border-gray-100 pb-2">
+                  <div className="flex justify-between items-start gap-4">
+                    <span className="text-gray-400 uppercase text-[7pt] font-black tracking-widest flex-shrink-0 pt-1">Account Holder</span>
+                    <span className="text-black text-right text-[9.5pt] font-black leading-tight">{state.bank.companyName}</span>
+                  </div>
+                </div>
+                <div className="border-b border-gray-100 pb-2">
+                  <div className="flex justify-between items-baseline gap-4">
+                    <span className="text-gray-400 uppercase text-[7pt] font-black tracking-widest flex-shrink-0">Bank Partner</span>
+                    <span className="text-black text-right text-[9.5pt] font-black">{state.bank.bankName}</span>
+                  </div>
+                </div>
+                <div className="border-b border-gray-100 pb-2">
+                  <div className="flex justify-between items-baseline gap-4">
+                    <span className="text-gray-400 uppercase text-[7pt] font-black tracking-widest flex-shrink-0">Bank Branch</span>
+                    <span className="text-black text-right text-[9.5pt] font-black">{state.bank.branch}</span>
+                  </div>
+                </div>
+                <div className="border-b border-gray-100 pb-2">
+                  <div className="flex justify-between items-baseline gap-4">
+                    <span className="text-gray-400 uppercase text-[7pt] font-black tracking-widest flex-shrink-0">Account No.</span>
+                    <span className="text-black text-right text-[11pt] font-black tracking-widest">{state.bank.accountNumber}</span>
+                  </div>
+                </div>
+                <div className="border-b border-gray-100 pb-2">
+                  <div className="flex justify-between items-baseline gap-4">
+                    <span className="text-gray-400 uppercase text-[7pt] font-black tracking-widest flex-shrink-0">IFSC Code</span>
+                    <span className="text-red-600 text-right text-[11pt] font-black">{state.bank.ifsc}</span>
+                  </div>
+                </div>
+                <div className="border-b border-gray-100 pb-2">
+                  <div className="flex justify-between items-baseline gap-4">
+                    <span className="text-gray-400 uppercase text-[7pt] font-black tracking-widest flex-shrink-0">PAN Number</span>
+                    <span className="text-black text-right text-[10pt] font-black uppercase">{state.bank.pan}</span>
+                  </div>
+                </div>
+                <div className="mt-4 text-center p-3 bg-white border border-red-100 rounded-xl shadow-inner">
+                  <p className="text-[7pt] text-gray-400 uppercase font-black mb-1 tracking-widest">UPI ID</p>
+                  <span className="text-[12pt] font-black text-black">{state.bank.upiId}</span>
+                </div>
+                <div className="mt-4 pt-3 border-t border-gray-100">
+                  <p className="text-[7pt] text-gray-400 uppercase font-black mb-1 tracking-widest text-center">Bank Address</p>
+                  <p className="text-[8.5pt] text-black leading-snug text-center font-bold px-4">{state.bank.address}</p>
+                </div>
+                <div className="mt-4 px-2">
+                  <p className="text-[7.5pt] text-red-600 font-black text-center leading-tight italic">
+                    All Payments Must Be Made to Kondaas Automation Private Limited Head Office Bank Account only
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="modern-card bg-black text-white shadow-xl flex flex-col col-span-2">
+              <h4 className="text-[8.5pt] font-black uppercase tracking-[0.25em] mb-7 text-red-500 text-center border-b border-gray-800 pb-3">Project Roadmap</h4>
+              <div className="space-y-8">
+                {[
+                  { s: '01', t: 'Delivery', d: '7-10 Days After Advance & KSEB Approval' },
+                  { s: '02', t: 'Payment', d: 'Ready payment : 10% Advance, 90% at the time of delivery \n Loan :10% Advance, 70% before delivery,20% After Installation/Before KSEB Documentation' },
+                  { s: '03', t: 'Installation', d: '7-10 Days as per payment terms and condition' },
+                ].map((t, idx) => (
+                  <div key={idx} className="flex gap-5 items-start">
+                    <span className="text-[22pt] font-black text-gray-800 leading-none">{t.s}</span>
+                    <div className="flex-1">
+                      <p className="text-[10.5pt] font-black uppercase tracking-tight mb-1.5 text-red-600">{t.t}</p>
+                      <p className="text-[8pt] text-gray-500 font-bold leading-relaxed whitespace-pre-line">{t.d}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="bg-gray-50 border border-gray-100 p-5 rounded-3xl mb-2 w-full shadow-inner">
+            <h4 className="text-[10pt] font-black text-red-600 uppercase tracking-[0.3em] mb-4 text-center">Required Documents for Subsidy Claim</h4>
+            <div className="flex flex-col gap-y-2 text-[8.5pt] font-bold text-gray-700 mb-4 max-w-xl mx-auto px-6">
+              <p className="flex items-center gap-3"><span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span> Mobile Number</p>
+              <p className="flex items-center gap-3"><span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span> Email ID</p>
+              <p className="flex items-center gap-3"><span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span> Google Map Location (Longitude and Latitude)</p>
+              <p className="flex items-center gap-3"><span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span> Aadhar Card</p>
+              <p className="flex items-center gap-3"><span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span> Cancelled Cheque / Bank Passbook Front Page / E-Statement</p>
+              <p className="flex items-center gap-3"><span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span> KSEB Bill</p>
+              <p className="flex items-center gap-3"><span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0"></span> Passport Size Photo</p>
+            </div>
+            <p className="text-[8pt] font-black text-red-600 text-center border-t border-red-100 pt-2 italic">
+              Note : All documents should belong to the KSEB consumer number owner's name
+            </p>
+          </div>
+          <div className="pt-1 flex justify-end px-10 w-full mt-0 mb-6">
+            <CompanySealBlock imageBottomClass="bottom-2" />
+          </div>
+        </div>
+        <PageFooter pageNum={4} noMarginTop />
+      </div>
+    </div>
+  );
+};
+
+export default PrintableView;
